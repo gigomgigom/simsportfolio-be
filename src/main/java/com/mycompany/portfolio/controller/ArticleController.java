@@ -3,10 +3,19 @@ package com.mycompany.portfolio.controller;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.UrlResource;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,7 +26,6 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.mycompany.portfolio.dto.ArticleDto;
-import com.mycompany.portfolio.dto.ArticleImageDto;
 import com.mycompany.portfolio.service.ArticleService;
 
 import jakarta.servlet.http.HttpServletResponse;
@@ -30,6 +38,9 @@ public class ArticleController {
 
 	@Autowired
 	private ArticleService articleService;
+	
+	@Value("${spring.servlet.multipart.location}")
+	private String uploadDir;
 	
 	//태그 리스트 응답
 	@GetMapping("/get_tag_list")
@@ -99,41 +110,40 @@ public class ArticleController {
 	//Editor 이미지 업로드
 	@PostMapping("/upload_editor_image")
 	public ResponseEntity<?> uploadEditorImage(@RequestParam("file") MultipartFile mf) {
-		ArticleImageDto articleImage = new ArticleImageDto();
-		articleImage.setImageOName(mf.getOriginalFilename());
-		articleImage.setImageType(mf.getContentType());
-		try {
-			articleImage.setImageData(mf.getBytes());
-		} catch (IOException e) {
-			e.printStackTrace();
+		if(mf.isEmpty()) {
+			return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("File is empty");
 		}
-		int imgId = articleService.addArticleContentImage(articleImage);
-		String downloadUrl = "/api/article/download_editor_image?imageId="+imgId;
-		return ResponseEntity.ok(downloadUrl);
+		try {
+			String fileName = UUID.randomUUID().toString() + "_" + mf.getOriginalFilename();
+			Path filePath = Paths.get(uploadDir, fileName);
+			
+			Files.copy(mf.getInputStream(), filePath);
+			
+			String fileDownloadUrl = "/api/article/download_editor_image/"+fileName;
+			
+			return ResponseEntity.ok(fileDownloadUrl);
+		} catch(IOException e) {
+			e.printStackTrace();
+			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Could not upload file");
+		}
 	}
 	
 	//Editor 이미지 다운로드
-	@GetMapping("/download_editor_image")
-	public void downloadEditorImage(HttpServletResponse response, int imageId) {
-		ArticleImageDto articleImage = articleService.getArticleContentImage(imageId);
-		if(articleImage != null) {
-			try {
-				String fileName = new String(articleImage.getImageOName().getBytes("UTF-8"), "ISO-8859-1");
-				response.setHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
-			} catch (UnsupportedEncodingException e) {
-				e.printStackTrace();
+	@GetMapping("/download_editor_image/{fileName}")
+	public ResponseEntity<?> downloadEditorImage(HttpServletResponse response, @PathVariable String fileName) {
+		try {
+			Path filePath = Paths.get(uploadDir).resolve(fileName).normalize();
+			Resource rsc = new UrlResource(filePath.toUri());
+			if(rsc.exists()) {
+				return ResponseEntity.ok()
+						.contentType(MediaType.parseMediaType(Files.probeContentType(filePath)))
+						.body(rsc);
+			} else {
+				return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
 			}
-			
-			response.setContentType(articleImage.getImageType());
-			OutputStream os;
-			try {
-				os = response.getOutputStream();
-				os.write(articleImage.getImageData());
-				os.flush();
-				os.close();
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
+		} catch(Exception e) {
+			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
 		}
+		
 	}
 }
