@@ -17,7 +17,6 @@ public class DataSourceConfig {
 	@Bean
 	public DataSource dataSource() {
 		HikariConfig config = new HikariConfig();
-		config.setDriverClassName("com.mysql.jdbc.Driver");
 		config.setJdbcUrl("jdbc:mysql://127.0.0.1:3306/sim-portfolio");
 		config.setUsername("root");
 		config.setPassword("1234");
